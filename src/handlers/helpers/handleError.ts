@@ -3,7 +3,7 @@ export interface HandlerError extends Error {
 }
 
 export class HandlerError extends Error {
-  constructor(statusCode: number, ...params: string[]) {
+  constructor(statusCode: number, ...params: Array<string>) {
     super(...params)
     this.name = "HandlerError"
     this.statusCode = statusCode

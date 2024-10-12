@@ -1,14 +1,22 @@
-import express, { Request, Response } from "express"
+import { Application, Request, Response } from "express"
 import jwt from "jsonwebtoken"
 import { verifyAuthToken } from "../middlewares/verifyAuthToken"
 import { UserStore } from "../models/user"
-import { UserCreate, UserCredentials, UserUpdate } from "../types/user"
+import {
+  UserCreate,
+  UserCredentials,
+  UserResponse,
+  UserUpdate,
+} from "../types/user"
 import { createUserResponse, isTheUser } from "../utils/user"
 import { HandlerError } from "./helpers/handleError"
 
 const store = new UserStore()
 
-const show = async (req: Request, res: Response): Promise<void> => {
+const show = async (
+  req: Request,
+  res: Response<UserResponse | { message: string }>
+): Promise<void> => {
   const user_id = req.params.id
   try {
     const user = await store.show(user_id)
@@ -34,7 +42,7 @@ const show = async (req: Request, res: Response): Promise<void> => {
 
 const create = async (
   { body: user }: Request<{}, {}, UserCreate>,
-  res: Response
+  res: Response<{ id: number; token: string } | { message: string }>
 ): Promise<void> => {
   try {
     if (!user.email) {
@@ -70,7 +78,7 @@ const create = async (
 
 const authenticate = async (
   { body }: Request<{}, {}, UserCredentials>,
-  res: Response
+  res: Response<{ id: number; token: string } | { message: string }>
 ): Promise<void> => {
   try {
     const user = await store.authenticate(body)
@@ -90,7 +98,7 @@ const authenticate = async (
 
 const remove = async (
   { params: { id } }: Request<{ id: string }>,
-  res: Response
+  res: Response<{ message: string }>
 ): Promise<void> => {
   try {
     const isTheOwnUser = isTheUser(parseInt(res.locals.token.id), parseInt(id))
@@ -110,7 +118,7 @@ const remove = async (
 
 const update = async (
   { params: { id }, body: user }: Request<{ id: string }, {}, UserUpdate>,
-  res: Response
+  res: Response<UserResponse | { message: string }>
 ): Promise<void> => {
   try {
     const isTheOwnUser = isTheUser(parseInt(res.locals.token.id), parseInt(id))
@@ -128,12 +136,14 @@ const update = async (
   }
 }
 
-const userRoutes = (app: express.Application): void => {
-  app.get("/users/:id", verifyAuthToken, show)
-  app.post("/users", create)
-  app.post("/users/authenticate", authenticate)
-  app.delete("/users/:id", verifyAuthToken, remove)
-  app.patch("/users/:id", verifyAuthToken, update)
+const basePath = "/users"
+
+const userRoutes = (app: Application): void => {
+  app.get(`${basePath}/:id`, verifyAuthToken, show)
+  app.post(basePath, create)
+  app.post(`${basePath}/authenticate`, authenticate)
+  app.delete(`${basePath}/:id`, verifyAuthToken, remove)
+  app.patch(`${basePath}/:id`, verifyAuthToken, update)
 }
 
 export default userRoutes
