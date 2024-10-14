@@ -1,5 +1,11 @@
+import {
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3"
 import { Application, Request, Response } from "express"
 import jwt from "jsonwebtoken"
+import { s3, upload } from "../fileStorage"
 import { verifyAuthToken } from "../middlewares/verifyAuthToken"
 import { UserStore } from "../models/user"
 import {
@@ -8,7 +14,7 @@ import {
   UserResponse,
   UserUpdate,
 } from "../types/user"
-import { createUserResponse, isTheUser } from "../utils/user"
+import { comparePassword, createUserResponse, isTheUser } from "../utils/user"
 import { HandlerError } from "./helpers/handleError"
 
 const store = new UserStore()
@@ -136,6 +142,82 @@ const update = async (
   }
 }
 
+const updatePassword = async (
+  {
+    params: { id },
+    body: { oldPassword, newPassword },
+  }: Request<{ id: string }, {}, { oldPassword: string; newPassword: string }>,
+  res: Response<{ message: string }>
+): Promise<void> => {
+  try {
+    const isTheOwnUser = isTheUser(parseInt(res.locals.token.id), parseInt(id))
+    if (!isTheOwnUser) {
+      throw new HandlerError(401, `You can't update another user`)
+    }
+    const user = await store.show(id)
+    const isPasswordMatch = comparePassword(oldPassword, user.password_digest)
+    if (!isPasswordMatch) {
+      throw new HandlerError(401, `Wrong password`)
+    }
+    const updateUser = await store.updatePassword(id, newPassword)
+    res.json({ message: `User ${updateUser.id} password updated` })
+  } catch (err) {
+    if (err instanceof HandlerError) {
+      res.status(err.statusCode).json({ message: err.message })
+    } else {
+      res.status(500).json({ message: "Something went wrong!" })
+    }
+  }
+}
+
+const uploadProfilePicture = async (
+  { params: { id }, ...req }: Request<{ id: string }>,
+  res: Response<{ url: string } | { message: string }>
+) => {
+  try {
+    if (!req.file) {
+      throw new HandlerError(400, "File is required")
+    }
+    const isTheOwnUser = isTheUser(parseInt(res.locals.token.id), parseInt(id))
+    if (!isTheOwnUser) {
+      throw new HandlerError(401, `You can't update another user`)
+    }
+    const { Contents } = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: process.env.AWS_BUCKET_NAME || "",
+        Prefix: `${id}/`,
+      })
+    )
+    if (Contents?.length) {
+      await s3.send(
+        new DeleteObjectsCommand({
+          Bucket: process.env.AWS_BUCKET_NAME || "",
+          Delete: {
+            Objects: Contents.map(({ Key }) => ({ Key })),
+          },
+        })
+      )
+    }
+    const Key = `${id}/${req.file.originalname}`
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.AWS_BUCKET_NAME || "",
+        Key,
+        Body: req.file.buffer,
+      })
+    )
+    res.json({
+      url: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${Key}`,
+    })
+  } catch (err) {
+    if (err instanceof HandlerError) {
+      res.status(err.statusCode).json({ message: err.message })
+    } else {
+      res.status(500).json({ message: "Something went wrong!" })
+    }
+  }
+}
+
 const basePath = "/users"
 
 const userRoutes = (app: Application): void => {
@@ -144,6 +226,13 @@ const userRoutes = (app: Application): void => {
   app.post(`${basePath}/authenticate`, authenticate)
   app.delete(`${basePath}/:id`, verifyAuthToken, remove)
   app.patch(`${basePath}/:id`, verifyAuthToken, update)
+  app.patch(`${basePath}/:id/password`, verifyAuthToken, updatePassword)
+  app.post(
+    `${basePath}/:id/image`,
+    verifyAuthToken,
+    upload.single("file"),
+    uploadProfilePicture
+  )
 }
 
 export default userRoutes

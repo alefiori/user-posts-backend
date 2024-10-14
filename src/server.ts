@@ -1,3 +1,4 @@
+import cors from "cors"
 import express from "express"
 import postRoutes from "./handlers/posts"
 import userRoutes from "./handlers/users"
@@ -7,6 +8,8 @@ const PORT = process.env.PORT || 3000
 export const address = `0.0.0.0:${PORT}`
 
 app.use(express.json())
+
+app.use(cors())
 
 userRoutes(app)
 postRoutes(app)

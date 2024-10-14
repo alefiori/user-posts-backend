@@ -1,8 +1,16 @@
 import bcrypt from "bcrypt"
 import client from "../database"
 import { User, UserCreate, UserCredentials, UserUpdate } from "../types/user"
+import { comparePassword } from "../utils/user"
 
-const { SALT_ROUNDS: saltRounds } = process.env
+const saltRounds = parseInt(process.env.SALT_ROUNDS || "10")
+
+const userFieldsMap: Record<keyof UserUpdate, keyof User> = {
+  firstName: "first_name",
+  lastName: "last_name",
+  pictureUrl: "picture_url",
+  email: "email",
+}
 
 export class UserStore {
   async show(id: string): Promise<User> {
@@ -34,7 +42,7 @@ export class UserStore {
   async create(u: UserCreate): Promise<User> {
     try {
       const conn = await client.connect()
-      const hash = bcrypt.hashSync(u.password, parseInt(saltRounds as string))
+      const hash = bcrypt.hashSync(u.password, saltRounds)
       const sql =
         "INSERT INTO users (email, first_name, last_name, password_digest) VALUES ($1, $2, $3, $4) RETURNING *"
       const result = await conn.query<User>(sql, [
@@ -58,7 +66,7 @@ export class UserStore {
       const result = await conn.query<User>(sql, [u.email])
       if (result.rows.length) {
         const user = result.rows[0]
-        if (bcrypt.compareSync(u.password, user.password_digest)) {
+        if (comparePassword(u.password, user.password_digest)) {
           return user
         }
       }
@@ -86,13 +94,30 @@ export class UserStore {
   async update(id: string, u: UserUpdate): Promise<User> {
     const fields = Object.keys(u).filter((k) => u[k as keyof UserUpdate])
     const values = fields.map((k) => u[k as keyof UserUpdate])
-    const setStr = fields.map((k, i) => `${k}=$${i + 1}`).join(", ")
+    const setString = fields
+      .map((k, i) => `${userFieldsMap[k as keyof UserUpdate]}=$${i + 1}`)
+      .join(", ")
     try {
       const conn = await client.connect()
-      const sql = `UPDATE users SET ${setStr} WHERE id=($${
+      const sql = `UPDATE users SET ${setString} WHERE id=($${
         fields.length + 1
       }) RETURNING *`
       const result = await conn.query<User>(sql, [...values, id])
+      conn.release()
+
+      return result.rows[0]
+    } catch (err) {
+      throw new Error(`Cannot update that user, ${err}`)
+    }
+  }
+
+  async updatePassword(id: string, password: string): Promise<User> {
+    try {
+      const conn = await client.connect()
+      const hash = bcrypt.hashSync(password, saltRounds)
+      const sql =
+        "UPDATE users SET password_digest=($1) WHERE id=($2) RETURNING *"
+      const result = await conn.query<User>(sql, [hash, id])
       conn.release()
 
       return result.rows[0]

@@ -1,3 +1,4 @@
+import bcrypt from "bcrypt"
 import { User, UserResponse } from "../types/user"
 
 export const isTheUser = (idInToken: number, idInRequest: number): boolean =>
@@ -10,3 +11,8 @@ export const createUserResponse = (u: User): UserResponse => ({
   email: u.email,
   pictureUrl: u.picture_url,
 })
+
+export const comparePassword = (
+  password: string,
+  passwordDigest: string
+): boolean => bcrypt.compareSync(password, passwordDigest)
